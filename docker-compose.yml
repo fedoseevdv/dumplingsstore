@@ -1,0 +1,41 @@
+version: "3.8"
+
+services:
+  backend:
+    build:
+      context: backend
+      dockerfile: Dockerfile
+    image: ${CI_REGISTRY_IMAGE}/dumplings-backend:${VERSION}
+    restart: on-failure:2
+    container_name: backend
+    environment:
+      PUBLIC_OBJECT_STORAGE_URL: $PUBLIC_OBJECT_STORAGE_URL
+    healthcheck:
+      test: wget --no-verbose --tries=1 --spider http://localhost:8081/health || exit 1
+      interval: 4m
+      timeout: 20s
+      start_period: 2m
+      retries: 6
+    networks:
+      - dumplings_network
+
+  frontend:
+    build:
+      context: frontend
+      dockerfile: Dockerfile
+    image: ${CI_REGISTRY_IMAGE}/dumplings-frontend:${VERSION}
+    restart: on-failure:2
+    container_name: frontend
+    healthcheck:
+      test: wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1
+      interval: 4m
+      timeout: 20s
+      start_period: 2m
+      retries: 6
+    ports:
+      - "8080:8080"
+    networks:
+      - dumplings_network
+
+networks:
+  dumplings_network:

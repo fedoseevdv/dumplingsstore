@@ -1,0 +1,96 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Chart.Name }}
+  namespace: {{ .Release.Namespace }}
+  
+  labels:
+    app: {{ .Chart.Name }}
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: "{{ .Release.Name }}"
+    app.kubernetes.io/version: "{{ .Chart.AppVersion }}"
+    app.kubernetes.io/managed-by: "{{ .Release.Service }}"
+    helm.sh/chart: "{{ .Chart.Name }}-{{ .Chart.Version }}"
+    app.kubernetes.io/component: frontend
+    app.kubernetes.io/part-of: {{ .Release.Name }}
+spec:
+  revisionHistoryLimit: {{ default 15 $.Values.global.revisionHistoryLimit }} 
+  {{- if .Values.autoScaling }}
+  {{- if not .Values.autoScaling.enabled }}
+  replicas: {{ default 1 .Values.replicaCount }}
+  {{- end }}
+  {{- else }}
+  replicas: {{ default 1 .Values.replicaCount }}
+  {{- end }}
+  strategy:
+    type: {{ .Values.strategyType }}
+    {{- if .Values.strategyType }}
+    {{- if eq quote .Values.strategyType "rollingUpdate" }}
+    rollingUpdate:
+      {{- toYaml .Values.rollingUpdateParameters | nindent 6 }}
+    {{- end }}
+    {{- end }}
+  selector:
+    matchLabels:
+      app: {{ .Chart.Name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Chart.Name }}
+    spec:
+      {{- if .Values.affinityNodeLabelRules }}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              {{- range $key, $val := .Values.affinityNodeLabelRules }}
+              {{- with $val }}
+              - key: {{ $val.key }}
+                operator: In
+                values: {{ $val.values }}
+              {{- end }}
+              {{- end }}
+      {{- end }}
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ $.Values.global.repositoryUrl }}dumplings-{{ .Chart.Name }}:{{ .Values.image.Tag }}"
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+
+          {{- if (.Values.environmentConfig) }}
+          env:
+          {{- toYaml .Values.environmentConfig | nindent 12 }}
+          {{ end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+
+          {{- if (.Values.environmentConfig) }}
+          env:
+          {{- toYaml .Values.environmentConfig | nindent 12 }}
+          {{ end }}
+
+          {{- if (.Values.livenessProbe) }}
+          livenessProbe:
+            httpGet:
+              path: /
+              port: {{ .Values.service.port }}
+          {{- toYaml .Values.livenessProbe | nindent 12 }}
+          {{ end }}
+
+          {{- with .Values.volumeMounts }}
+          volumeMounts:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- with .Values.volumes }}
+      volumes:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      imagePullSecrets:
+        - name: {{ $.Release.Name }}-docker-secret
+

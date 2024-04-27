@@ -1,0 +1,32 @@
+#by Yandex
+#Create external user with admin privileges and static token for access
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: $CLUSTER_ADMIN
+  namespace: kube-system
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: $CLUSTER_ADMIN
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: $CLUSTER_ADMIN
+subjects:
+- kind: ServiceAccount
+  name: $CLUSTER_ADMIN
+  namespace: kube-system
+
+---
+apiVersion: v1
+kind: Secret
+type: kubernetes.io/service-account-token
+metadata:
+  name: $CLUSTER_ADMIN-token
+  namespace: kube-system
+  annotations:
+    kubernetes.io/service-account.name: "$CLUSTER_ADMIN"

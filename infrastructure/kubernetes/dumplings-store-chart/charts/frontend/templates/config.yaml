@@ -1,0 +1,13 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-conf
+  namespace: {{ .Release.Namespace }}
+data:
+  {{- $nginxTemplateFile := .Files.Get .Values.nginxConfigTemplate -}}
+  {{- $nginxTemplateFileParced := tpl $nginxTemplateFile . -}}
+  {{- if $nginxTemplateFileParced -}}
+  {{- (println "nginx.conf:" " |") | nindent 2 }}
+  {{- (println $nginxTemplateFileParced) | nindent 4 }}
+  {{- end }}

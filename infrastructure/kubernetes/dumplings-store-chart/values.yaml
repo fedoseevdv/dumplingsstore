@@ -1,0 +1,108 @@
+global:
+#число сохраняемых откатов при деплое
+  revisionHistoryLimit: 15
+
+#базовая часть url до образов. из них собирается параметр image
+#пример: gitlab.praktikum-services.ru:5050/std-ext-001-027/dumplings-store/
+  repositoryUrl: REQUIRED
+
+#имя k8s ingress контроллера в кластере, которая доступна вместе с frontend
+#пример: denis-fedoseev-01.k8s.praktikum-services.tech
+  k8sHostname: REQUIRED
+
+#наименование secrets store, куда сохраняет данные cert-manager, задается в параметрах deploy
+  tslStoreSecretName: REQUIRED  
+
+#параметры сабмодулей
+#
+#
+#Frontend
+frontend:
+#Наименование контейнера (сервиса), куда перенаправляются API-запросы Nginx.
+#Параметр, специфичный только для этого модуля
+  upStreamAPIServer: "http://backend:8081"
+#Наименование файла шаблона конфигурации nginx. Расположен в папке с саб-модулем
+#Параметр, специфичный только для этого модуля
+  nginxConfigTemplate: "nginx.conf"
+
+#параметры тегов образов (версии)
+#задаются через --set в случае запуска пайплайна
+  image:
+    Tag: REQUIRED
+
+#сервисный порт контейнера           
+  service:
+    port: 8080
+
+
+#Число реплик
+  replicaCount: 2
+
+  strategyType: Recreate
+
+  autoScaling:
+    enabled: false
+
+  livenessProbe:
+    initialDelaySeconds: 45
+    periodSeconds: 30
+    timeoutSeconds: 1
+    failureThreshold: 6
+  
+  imagePullPolicy: IfNotPresent
+
+#монтирование папок, конфигурация nginx
+  volumeMounts: 
+    - name: nginx-conf
+      mountPath: /etc/nginx/nginx.conf
+      subPath: nginx.conf
+      readOnly: true
+#создание volumes
+  volumes:
+    - name: nginx-conf
+      configMap:
+        name: nginx-conf
+        items:
+          - key: nginx.conf
+            path: nginx.conf
+
+#Backend
+backend:
+#параметры тегов образов (версии)
+#задаются через --set
+  image:
+    Tag: REQUIRED
+
+#сервисный порт контейнера           
+  service:
+    port: 8081
+
+  strategyType: RollingUpdate
+
+  rollingUpdateParameters:
+    maxUnavailable: 2
+    maxSurge: 20%
+
+#url до bucket с public access, для загрузки статичных объектов
+  environmentConfig:
+    - name: PUBLIC_OBJECT_STORAGE_URL
+      value: REQUIRED
+
+#Варианты масштабирования
+#возможен scaleType=VPA или HPA
+  autoScaling:
+    enabled: true
+    scaleType: VPA
+    minAllowed:
+      CPU: 0m
+      memory: 0Mi
+    maxAllowed:
+      CPU: 1
+      memory: 500Mi
+
+#Health-check
+  livenessProbe:
+    initialDelaySeconds: 45
+    periodSeconds: 30
+    timeoutSeconds: 1
+    failureThreshold: 6

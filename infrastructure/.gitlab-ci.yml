@@ -1,0 +1,60 @@
+stages:
+  - deploy
+
+deploy-into-kubernetes:
+  stage: deploy
+  image:
+    name: docker:dind
+    entrypoint: ['']
+  before_script:
+    - apk update
+    - apk add --no-cache curl gettext
+
+    - mkdir -p ~/.kube
+    - echo $KUBECONFIG_DATA | base64 -d>~/.kube/config
+
+    - curl -LO https://storage.googleapis.com/kubernetes-release/release/$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)/bin/linux/amd64/kubectl && chmod +x ./kubectl
+
+    - HELM_SOURCE=helm-v3.14.2-linux-amd64.tar.gz && 
+      curl https://get.helm.sh/$HELM_SOURCE --output ./$HELM_SOURCE &&
+      tar -zxvf ./$HELM_SOURCE --strip=1
+  script:
+    - ./kubectl get po -n default
+
+    - ./helm repo add "${NEXUS_REPOSITORY_NAME_HELM}-nexus"
+                      "${NEXUS_ACCESS_URL}/repository/${NEXUS_REPOSITORY_NAME_HELM}/"
+                      --password "${NEXUS_PASSWORD}"
+                      --username "${NEXUS_USERNAME}"
+    - ./helm package ${CI_PROJECT_DIR}/infrastructure/kubernetes/dumplings-store-chart/ -d ${CI_PROJECT_DIR} && TAR_FILE=$( ls ${CI_PROJECT_DIR}/dumplings-store*.tgz )
+    
+    - set -u && echo "Generated archive ${TAR_FILE}"
+
+    - curl "${NEXUS_ACCESS_URL}/repository/${NEXUS_REPOSITORY_NAME_HELM}/" 
+          --user "${NEXUS_USERNAME}:${NEXUS_PASSWORD}" 
+          --upload-file "${TAR_FILE}" 
+          --verbose 
+          --fail
+        
+    - echo $PUBLIC_OBJECT_STORAGE_URL
+    - ./helm repo update
+    - ./helm upgrade --install "dumplings-store" 
+                     --namespace default 
+                     --set "backend.image.Tag=$BACKEND_IMAGE_VERSION" 
+                     --set "frontend.image.Tag=$FRONTEND_IMAGE_VERSION" 
+                     --set "global.repositoryUrl=${REPOSITORY_IMAGES_URL}" 
+                     --set "global.k8sHostname=${FRONTEND_EXTERNAL_FQDN}" 
+                     --set "global.tslStoreSecretName=${TLS_STORE_SECRET_NAME}" 
+                     --set "backend.environmentConfig[0].name=PUBLIC_OBJECT_STORAGE_URL" 
+                     --set "backend.environmentConfig[0].value=https://storage.yandexcloud.net/$PUBLIC_OBJECT_STORAGE_NAME/" 
+                     --wait 
+                     --timeout 300s 
+                     --atomic 
+                     --debug 
+                     ${NEXUS_REPOSITORY_NAME_HELM}-nexus/dumplings-store
+
+    - rm ~/.kube/config
+  rules:
+    - if: $DEPLOY_VARIABLE == "manual"
+      when: manual
+      allow_failure: true
+      

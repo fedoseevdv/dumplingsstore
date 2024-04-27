@@ -1,0 +1,35 @@
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: tls-{{ .Chart.Name }}-ingress
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    cert-manager.io/cluster-issuer: "yc-clusterissuer"  
+spec:
+  tls:
+  - hosts:
+      - "www.{{ $.Values.global.k8sHostname }}"
+      - "{{ $.Values.global.k8sHostname }}"
+    secretName: {{ $.Values.global.tslStoreSecretName }}
+  rules:
+  - host: "{{ $.Values.global.k8sHostname }}"
+    http:
+      paths:    
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: {{ .Chart.Name }}
+            port:
+              number: {{ .Values.service.port }}
+  - host: "www.{{ $.Values.global.k8sHostname }}"
+    http:
+      paths:    
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: {{ .Chart.Name }}
+            port:
+              number: {{ .Values.service.port }}

@@ -1,0 +1,155 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Chart.Name }}
+  namespace: {{ .Release.Namespace }}
+
+  labels:
+    app: {{ .Chart.Name }}
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: "{{ .Release.Name }}"
+    app.kubernetes.io/version: "{{ .Chart.AppVersion }}"
+    app.kubernetes.io/managed-by: "{{ .Release.Service }}"
+    helm.sh/chart: "{{ .Chart.Name }}-{{ .Chart.Version }}"
+    app.kubernetes.io/component: backend
+    app.kubernetes.io/part-of: {{ .Release.Name }}
+spec:
+  revisionHistoryLimit: {{ default 15 $.Values.global.revisionHistoryLimit }} 
+  {{- if .Values.autoScaling }}
+  {{- if not .Values.autoScaling.enabled }}
+  replicas: {{ default 1 .Values.replicaCount }}
+  {{- end }}
+  {{- else }}
+  replicas: {{ default 1 .Values.replicaCount }}
+  {{- end }}
+  strategy:
+    type: {{ .Values.strategyType }}
+    {{- if .Values.strategyType }}
+    {{- if eq quote .Values.strategyType "rollingUpdate" }}
+    rollingUpdate:
+      {{- toYaml .Values.rollingUpdateParameters | nindent 6 }}
+    {{- end }}
+    {{- end }}
+  selector:
+    matchLabels:
+      app: {{ .Chart.Name }}
+  template:
+    metadata:
+      annotations:
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "{{ .Values.service.port }}"
+        prometheus.io/scrape: "true"
+      labels:
+        app: {{ .Chart.Name }}
+        app.kubernetes.io/name: {{ .Chart.Name }}
+    spec:
+      {{- if .Values.affinityNodeLabelRules }}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              {{- range $key, $val := .Values.affinityNodeLabelRules }}
+              {{- with $val }}
+              - key: {{ $val.key }}
+                operator: In
+                values: {{ $val.values }}
+              {{- end }}
+              {{- end }}
+      {{- end }}
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ $.Values.global.repositoryUrl }}dumplings-{{ .Chart.Name }}:{{ .Values.image.Tag }}"
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+
+          {{- if (.Values.environmentConfig) }}
+          env:
+          {{- toYaml .Values.environmentConfig | nindent 12 }}
+          {{ end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+
+          {{- if (.Values.livenessProbe) }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.service.port }}
+          {{- toYaml .Values.livenessProbe | nindent 12 }}
+          {{ end }}
+
+          {{- with .Values.volumeMounts }}
+          volumeMounts:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- with .Values.volumes }}
+      volumes:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      imagePullSecrets:
+        - name: {{ $.Release.Name }}-docker-secret
+
+{{- if .Values.autoScaling.enabled }}
+{{- if eq quote .Values.autoScaling.scaleType "VPA" }}
+---
+apiVersion: autoscaling/v2
+kind: VerticalPodAutoscaler
+metadata:
+  name: {{ .Chart.Name }}
+spec:
+  targetRef:
+    apiVersion: "apps/v1"
+    kind: Deployment
+    name: {{ .Chart.Name }}
+  updatePolicy:
+    updateMode: {{ default "Auto" .Values.autoScaling.updateMode }}
+  resourcePolicy:
+    containerPolicies:
+      - containerName: "*"
+        minAllowed:
+          cpu:  {{ .Values.autoScaling.minAllowed.CPU }}
+          memory:  {{ .Values.autoScaling.minAllowed.memory }}
+        maxAllowed:
+          cpu:  {{ .Values.autoScaling.maxAllowed.CPU }}
+          memory:  {{ .Values.autoScaling.maxAllowed.memory }}
+        controlledResources: ["cpu", "memory"]
+        controlledValues: RequestsAndLimits
+{{- end }}
+{{- end }}
+
+{{- if .Values.autoScaling.enabled }}
+{{- if eq quote .Values.autoScaling.scaleType "HPA" }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ .Chart.Name }}-vpa
+  labels:
+    app: {{ .Chart.Name }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ .Chart.Name }}
+  minReplicas: {{ .Values.autoScaling.minReplicas }}
+  maxReplicas: {{ .Values.autoScaling.maxReplicas }}
+  metrics:
+    {{- if .Values.autoScaling.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.autoScaling.targetCPUUtilizationPercentage }}
+    {{- end }}
+    {{- if .Values.autoScaling.targetMemoryUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.autoScaling.targetMemoryUtilizationPercentage }}
+    {{- end }}
+{{- end }}
+{{- end }}
